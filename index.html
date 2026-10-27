@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Amphidromic Points (GOT4.10c)</title>
+<style>
+  html, body { margin:0; height:100%; background:#05070b; color:#d8e2ee; font:13px/1.45 system-ui, sans-serif; overflow:hidden; }
+  #panel { position:fixed; top:12px; left:12px; width:340px; max-height:calc(100% - 24px); overflow:auto;
+    background:rgba(7,9,13,.86); border:1px solid #1b2330; border-radius:10px; padding:12px 14px; box-sizing:border-box; }
+  h1 { font-size:16px; margin:0 0 6px; color:#fff; }
+  h2 { font-size:12px; margin:12px 0 4px; color:#8fb3d9; text-transform:uppercase; letter-spacing:.06em; }
+  p { margin:4px 0; }
+  .row { display:flex; align-items:center; gap:8px; margin:6px 0; flex-wrap:wrap; }
+  .row > span:first-child { min-width:96px; }
+  button { background:#14202e; color:#d8e2ee; border:1px solid #2a3a50; border-radius:6px; padding:4px 10px; cursor:pointer; }
+  button:hover { background:#1d2d40; }
+  button.on { background:#2a4a6e; border-color:#5f8fc0; color:#fff; }
+  input[type=range] { flex:1; min-width:100px; }
+  .mono { font-family:ui-monospace, Consolas, monospace; font-size:12px; white-space:pre; }
+  #list { max-height:220px; overflow:auto; border:1px solid #1b2330; border-radius:6px; }
+  #list div { padding:2px 6px; cursor:pointer; display:flex; justify-content:space-between; font-family:ui-monospace, Consolas, monospace; font-size:11.5px; }
+  #list div:hover, #list div.sel { background:#16263a; }
+  .ccw { color:#5fd4ff; } .cw { color:#ffad5f; }
+  #info { position:fixed; top:12px; right:12px; width:390px; max-height:calc(100% - 70px); overflow:auto; background:rgba(7,9,13,.86); border:1px solid #1b2330;
+    border-radius:10px; padding:10px 12px; box-sizing:border-box; }
+  canvas.plot { width:100%; display:block; border-radius:6px; background:#0a1018; }
+  #legend { position:fixed; bottom:12px; left:364px; background:rgba(7,9,13,.78); border:1px solid #1b2330; border-radius:8px; padding:6px 10px; font-size:11px; }
+  .bar { display:inline-block; width:120px; height:9px; vertical-align:middle; border-radius:3px;
+    background:linear-gradient(90deg,#1747c9,#e8eef5,#d23a2a); }
+  #credit { position:fixed; right:10px; bottom:10px; z-index:9999; color:#fff; font-size:11px; text-align:right;
+    pointer-events:none; background:rgba(7,9,13,.78); padding:4px 9px; border-radius:7px; border:1px solid #1b2330; }
+  @media (max-width:820px) { #legend { display:none; } #panel { width:calc(100% - 24px); max-height:34%; } #info { top:auto; bottom:52px; left:12px; width:calc(100% - 24px); max-height:40%; } }
+</style>
+</head>
+<body>
+<div id="panel">
+  <h1>Earth's amphidromic points, from real tide data</h1>
+  <p>The colours are the <b>actual tide</b> from NASA's GOT4.10c model (built from satellite altimetry, 0.5&deg; grid), animated through one cycle. The dots are every amphidromic point found in it: places where the phase of the tide <b>winds once around</b> a grid cell, so the height there is zero.</p>
+  <p>Drag to rotate, scroll to zoom, click a dot or a list entry to fly there.</p>
+
+  <h2>Tide</h2>
+  <div class="row"><span>constituent</span>
+    <button data-c="m2" class="on">M2 lunar</button><button data-c="s2">S2 solar</button>
+    <button data-c="k1">K1</button><button data-c="o1">O1</button></div>
+  <div class="row"><button id="play">Pause</button><span class="mono" id="clock"></span></div>
+  <div class="row"><span>speed</span><input id="speed" type="range" min="0.2" max="6" step="0.1" value="2"><span class="mono" id="spv"></span></div>
+  <div class="row"><span>colour range</span><input id="scale" type="range" min="10" max="300" step="5" value="80"><span class="mono" id="scv"></span></div>
+  <div class="row"><label><input type="checkbox" id="cot" checked> cotidal lines (every 1/12 cycle)</label></div>
+
+  <h2>Points</h2>
+  <div class="row"><span>min. from land</span><input id="dmin" type="range" min="0" max="1000" step="25" value="0"><span class="mono" id="dminv"></span></div>
+  <div class="row"><label><input type="checkbox" id="noise"> show close +/- pairs (likely grid noise)</label></div>
+  <div class="mono" id="count"></div>
+  <div id="list"></div>
+
+  <h2>Honest notes</h2>
+  <p>A 0.5&deg; grid (about 55 km) <b>misses</b> points in narrow seas and every "degenerate" point on land (S Norway, E Ireland, New Zealand), because the grid has no water there. Points under 100 km from land are the least reliable.</p>
+  <p>Two points of opposite rotation very close together are often noise from the grid, not real. They are hidden unless you tick the box.</p>
+  <p>The animation starts at an arbitrary moment in the cycle; it is not today's real tide. Phases are correct <b>relative to each other</b>.</p>
+  <p><b>Currents</b> are calculated, not measured: the slope of the tide surface pushes the water, and Earth's rotation turns it (linear, frictionless). That is good in the deep ocean; in shallow seas friction slows the real flow, so treat those numbers as upper limits. Near the "critical latitude" (where the tide's period matches the rotation's turning period: 74.5&deg; for M2, about 30&deg; for K1/O1) the estimate breaks down and is not shown.</p>
+  <p>Depth: NOAA ETOPO1, averaged to 0.5&deg;.</p>
+  <p>Data: R. Ray, GOT4.10c, NASA Goddard. Points found by <span class="mono">find_amphidromes.py</span>.</p>
+</div>
+
+<div id="info">
+  <div id="sel"><b>Click anywhere on the ocean</b> (or on a dot) to probe the tide there.</div>
+  <div id="probe" style="display:none">
+    <h2>Side view along the cut (yellow line on the globe)</h2>
+    <canvas class="plot" id="side" height="300"></canvas>
+    <div style="font-size:11px;color:#8fa3ba">Top: the surface, tide height in cm (exaggerated). Bottom: real sea floor in metres. White arrows: which way the water is flowing right now.</div>
+    <div class="row"><span>cut direction</span><input id="cutdir" type="range" min="0" max="179" step="1" value="0"><span class="mono" id="cutdv"></span></div>
+    <div class="row"><span>cut length</span><input id="cutlen" type="range" min="200" max="5000" step="100" value="2000"><span class="mono" id="cutlv"></span></div>
+    <div class="row"><button id="alignw">Align cut with the wave's travel</button></div>
+    <h2>At the probe over one cycle</h2>
+    <canvas class="plot" id="ts" height="110"></canvas>
+    <div style="font-size:11px;color:#8fa3ba"><span style="color:#ff5a5a">&#9632;</span> height &nbsp; <span style="color:#7fe0ff">- -</span> current along the cut &nbsp; | right: current seen from above (N up)</div>
+  </div>
+  <h2>Live check (re-computed here from the field)</h2>
+  <div class="mono" id="check"></div>
+</div>
+
+<div id="legend">tide height: low <span class="bar"></span> high &nbsp;|&nbsp; <span class="ccw">&#9679; counter-clockwise</span> &nbsp; <span class="cw">&#9679; clockwise</span></div>
+<div id="credit">Krimsey Lilleth<br>klilleth@proton.me</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="amphidromic_got410c_data.js"></script>
+<script src="amphidromic_bathy_data.js"></script>
+<script>
+const $ = id=>document.getElementById(id);
+
+// ---------------- decode tide fields: Zr = A cos G, Zi = A sin G (mm) ----------------
+// height h(t) = A cos(w t - G) = Zr cos(w t) + Zi sin(w t)
+const FIELDS = {};
+for(const [c, d] of Object.entries(TIDE.constituents)){
+  const bin = atob(d.field.b64), n = d.field.nlat*d.field.nlon;
+  const buf = new DataView(new ArrayBuffer(bin.length));
+  for(let i=0;i<bin.length;i++) buf.setUint8(i, bin.charCodeAt(i));
+  const zr = new Float32Array(n), zi = new Float32Array(n), ok = new Uint8Array(n), ph = new Float32Array(n);
+  for(let k=0;k<n;k++){
+    const a = buf.getInt16(4*k, true), b = buf.getInt16(4*k+2, true);
+    if(a === -32768){ ok[k]=0; continue; }
+    ok[k]=1; zr[k]=a/10; zi[k]=b/10; ph[k]=Math.atan2(zi[k], zr[k]);   // cm
+  }
+  FIELDS[c] = {nlat:d.field.nlat, nlon:d.field.nlon, zr, zi, ok, ph, w:2*Math.PI/d.period_h, period:d.period_h, points:d.points};
+}
+let C = "m2", F = FIELDS[C];
+
+// lat/lon -> unit vector matching three.js SphereGeometry UVs with an equirectangular map
+function ll2v(lat, lon){
+  const f = lat*Math.PI/180, l = lon*Math.PI/180;
+  return new THREE.Vector3(Math.cos(f)*Math.cos(l), Math.sin(f), -Math.cos(f)*Math.sin(l));
+}
+
+// ---------------- scene ----------------
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(40, innerWidth/innerHeight, 0.01, 100);
+camera.position.copy(ll2v(35, -30).multiplyScalar(3.6));
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.minDistance = 1.15; controls.maxDistance = 8;
+
+const loader = new THREE.TextureLoader(); loader.setCrossOrigin("anonymous");
+const dayTex = loader.load("https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/earth_atmos_2048.jpg");
+
+let tideTex, tideData, phaseTex;
+function makeTideTexture(){
+  tideData = new Uint8Array(F.nlat*F.nlon*4);
+  if(tideTex) tideTex.dispose();
+  tideTex = new THREE.DataTexture(tideData, F.nlon, F.nlat, THREE.RGBAFormat);
+  tideTex.magFilter = THREE.LinearFilter; tideTex.minFilter = THREE.LinearFilter;
+  tideTex.wrapS = THREE.RepeatWrapping;
+  // static phase field (cos G, sin G) for crisp cotidal lines drawn per pixel in the shader
+  const pd = new Uint8Array(F.nlat*F.nlon*4);
+  for(let k=0;k<F.nlat*F.nlon;k++){
+    if(!F.ok[k]){ pd[4*k]=pd[4*k+1]=128; continue; }
+    pd[4*k] = Math.round(127.5+127.5*Math.cos(F.ph[k])); pd[4*k+1] = Math.round(127.5+127.5*Math.sin(F.ph[k])); pd[4*k+3] = 255;
+  }
+  if(phaseTex) phaseTex.dispose();
+  phaseTex = new THREE.DataTexture(pd, F.nlon, F.nlat, THREE.RGBAFormat);
+  phaseTex.magFilter = THREE.LinearFilter; phaseTex.minFilter = THREE.LinearFilter;
+  phaseTex.wrapS = THREE.RepeatWrapping; phaseTex.needsUpdate = true;
+  if(uniforms){ uniforms.tideMap.value = tideTex; uniforms.phaseMap.value = phaseTex; }
+}
+let uniforms = null;
+makeTideTexture();
+uniforms = { dayMap:{value:dayTex}, tideMap:{value:tideTex}, phaseMap:{value:phaseTex}, showCot:{value:0} };
+const earth = new THREE.Mesh(new THREE.SphereGeometry(1, 160, 120), new THREE.ShaderMaterial({uniforms,
+  extensions:{derivatives:true},
+  vertexShader:`varying vec2 vUv; varying vec3 vN;
+    void main(){ vUv=uv; vN=normalMatrix*normal; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
+  fragmentShader:`uniform sampler2D dayMap; uniform sampler2D tideMap; uniform sampler2D phaseMap; uniform float showCot;
+    varying vec2 vUv; varying vec3 vN;
+    void main(){ vec3 base=texture2D(dayMap,vUv).rgb; vec4 t=texture2D(tideMap,vUv);
+      vec3 col = t.a>0.01 ? mix(base, t.rgb/max(t.a,1e-3), smoothstep(0.2,0.6,t.a)*0.92) : base;
+      if(showCot > 0.5){
+        vec4 pz = texture2D(phaseMap, vUv);
+        float c = pz.r*2.-1., s = pz.g*2.-1., m2 = max(c*c+s*s, 1e-6);
+        float f = (atan(s, c) + 6.2831853)*12./6.2831853;           // phase in 1/12 cycles
+        // pixel footprint of the phase, from derivatives of (c,s): no jump at the +-pi wrap
+        float dfx = (c*dFdx(s) - s*dFdx(c))/m2, dfy = (c*dFdy(s) - s*dFdy(c))/m2;
+        float w = (abs(dfx)+abs(dfy))*12./6.2831853;
+        float d = abs(fract(f+0.5)-0.5);                              // distance to nearest line
+        float line = 1. - smoothstep(0.55, 1.35, d/max(w,1e-5));
+        line *= 1. - smoothstep(0.18, 0.4, w);                        // fade where lines crowd together
+        line *= smoothstep(0.6, 0.9, pz.a);
+        col = mix(col, vec3(0.04,0.05,0.07), line*0.8);
+      }
+      float lam = 0.6 + 0.4*max(dot(normalize(vN), normalize(vec3(0.4,0.5,1.0))),0.);
+      gl_FragColor = vec4(col*mix(1.,lam,0.35),1.); }`}));
+scene.add(earth);
+scene.add(new THREE.Mesh(new THREE.SphereGeometry(1.02, 64, 48),
+  new THREE.MeshBasicMaterial({color:0x3a7bd5, transparent:true, opacity:0.08, side:THREE.BackSide})));
+{ const g = new THREE.BufferGeometry(), a = [];
+  for(let i=0;i<2500;i++){ const v = new THREE.Vector3(Math.random()-.5,Math.random()-.5,Math.random()-.5).normalize().multiplyScalar(40+Math.random()*20); a.push(v.x,v.y,v.z); }
+  g.setAttribute("position", new THREE.Float32BufferAttribute(a,3));
+  scene.add(new THREE.Points(g, new THREE.PointsMaterial({color:0x8899aa, size:0.08}))); }
+
+// ---------------- markers ----------------
+let markerGroup = new THREE.Group(); scene.add(markerGroup);
+let shown = [], pickables = [], sel = -1;
+function visiblePoints(){
+  const dmin = +$("dmin").value, noise = $("noise").checked;
+  return F.points.map((p,i)=>({...p, i})).filter(p=>p.dland >= dmin && (noise || !p.pair));
+}
+function rebuildMarkers(){
+  scene.remove(markerGroup); markerGroup = new THREE.Group(); scene.add(markerGroup);
+  pickables = []; shown = visiblePoints();
+  shown.forEach(p=>{
+    const v = ll2v(p.lat, p.lon), col = p.s>0 ? 0x5fd4ff : 0xffad5f;
+    const size = p.pair ? 0.006 : 0.009;
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(size, 12, 10), new THREE.MeshBasicMaterial({color:col}));
+    dot.position.copy(v.clone().multiplyScalar(1.003)); dot.userData.i = p.i;
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.0016,0.0016,0.04,6), new THREE.MeshBasicMaterial({color:col}));
+    stem.position.copy(v.clone().multiplyScalar(1.022)); stem.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), v);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(size*1.25, 12, 10), new THREE.MeshBasicMaterial({color:col}));
+    head.position.copy(v.clone().multiplyScalar(1.044)); head.userData.i = p.i;
+    markerGroup.add(dot, stem, head); pickables.push(dot, head);
+  });
+  // list
+  const L = $("list"); L.innerHTML = "";
+  shown.forEach(p=>{
+    const d = document.createElement("div"); d.id = "li"+p.i;
+    d.innerHTML = `<span class="${p.s>0?'ccw':'cw'}">${fmtLL(p.lat,p.lon)}</span><span>${p.dland} km${p.pair?" ?":""}</span>`;
+    d.onclick = ()=>select(p.i, true); L.appendChild(d);
+  });
+  const all = F.points, nN = shown.filter(p=>p.lat>=0), nS = shown.filter(p=>p.lat<0);
+  const rule = shown.filter(p=>(p.lat>=0 ? p.s>0 : p.s<0)).length;
+  $("count").textContent =
+    `${C.toUpperCase()}: showing ${shown.length} of ${all.length} found\n`+
+    `north: ${nN.filter(p=>p.s>0).length} CCW, ${nN.filter(p=>p.s<0).length} CW   `+
+    `south: ${nS.filter(p=>p.s>0).length} CCW, ${nS.filter(p=>p.s<0).length} CW\n`+
+    `obey "N=CCW, S=CW" rule: ${rule} of ${shown.length}`;
+  if(sel >= 0 && !shown.find(p=>p.i===sel)) sel = -1;
+  if(sel >= 0) select(sel, false);
+}
+function fmtLL(lat, lon){ return `${Math.abs(lat).toFixed(1).padStart(4)}${lat>=0?"N":"S"} ${Math.abs(lon).toFixed(1).padStart(5)}${lon>=0?"E":"W"}`; }
+
+// ---------------- field sampling (for the live check) ----------------
+function sample(lat, lon){
+  // bilinear in the grid: rows lat -90..90, cols lon -180..(180-step)
+  const dlat = 180/(F.nlat-1), dlon = 360/F.nlon;
+  const y = (lat+90)/dlat, x = (((lon+180)%360)+360)%360/dlon;
+  const j = Math.min(F.nlat-2, Math.floor(y)), i = Math.floor(x), v = y-j, u = x-i, i1 = (i+1)%F.nlon;
+  const idx = [[j,i,(1-u)*(1-v)],[j,i1,u*(1-v)],[j+1,i1,u*v],[j+1,i,(1-u)*v]];
+  let zr=0, zi=0, okAll=true;
+  for(const [jj,ii,wt] of idx){ const k=jj*F.nlon+ii; if(!F.ok[k]) okAll=false; zr+=wt*F.zr[k]; zi+=wt*F.zi[k]; }
+  return {zr, zi, ok:okAll};
+}
+function windingAt(lat, lon, rad){
+  let tot=0, prev=null;
+  for(let n=0;n<=48;n++){
+    const th=2*Math.PI*n/48, la=lat+rad*Math.sin(th), lo=lon+rad*Math.cos(th)/Math.cos(lat*Math.PI/180);
+    const z=sample(la,lo); if(!z.ok) return null;
+    const ph=Math.atan2(z.zi, z.zr);
+    if(prev!==null){ let d=ph-prev; while(d>Math.PI)d-=2*Math.PI; while(d<-Math.PI)d+=2*Math.PI; tot+=d; }
+    prev=ph;
+  }
+  return Math.round(tot/(2*Math.PI));
+}
+function ringAmp(lat, lon, rad){
+  let s=0, n=0;
+  for(let k=0;k<24;k++){ const th=2*Math.PI*k/24, z=sample(lat+rad*Math.sin(th), lon+rad*Math.cos(th)/Math.cos(lat*Math.PI/180));
+    if(z.ok){ s+=Math.hypot(z.zr,z.zi); n++; } }
+  return n? s/n : NaN;
+}
+
+// ---------------- selection ----------------
+let flyFrom=null, flyTo=null, flyT=1;
+function select(i, fly){
+  sel = i;
+  document.querySelectorAll("#list div").forEach(d=>d.classList.remove("sel"));
+  const li = $("li"+i); if(li){ li.classList.add("sel"); if(fly) li.scrollIntoView({block:"nearest"}); }
+  const p = F.points[i];
+  const ruleS = p.lat>=0 ? 1 : -1;
+  $("sel").innerHTML = `<b>${C.toUpperCase()} amphidromic point</b><br><span class="mono">${fmtLL(p.lat,p.lon)}</span><br>`+
+    `rotation: <span class="${p.s>0?'ccw':'cw'}">${p.s>0?"counter-clockwise":"clockwise"}</span> `+
+    `(${ruleS===p.s?"follows":"<b>breaks</b>"} the hemisphere rule)<br>`+
+    `distance to nearest land cell: ${p.dland} km`+(p.pair?`<br><i>Has an opposite-rotation partner very close by: possibly grid noise.</i>`:"");
+  setProbe(p.lat, p.lon, false);
+  if(fly){
+    flyFrom = camera.position.clone();
+    flyTo = ll2v(p.lat,p.lon).multiplyScalar(Math.min(camera.position.length(), 1.9));
+    flyT = 0;
+  }
+}
+const ray = new THREE.Raycaster(), mouse = new THREE.Vector2(); let downXY=null;
+renderer.domElement.addEventListener("pointerdown", e=>{ downXY=[e.clientX,e.clientY]; });
+renderer.domElement.addEventListener("pointerup", e=>{
+  if(!downXY || Math.hypot(e.clientX-downXY[0], e.clientY-downXY[1])>5) return;
+  mouse.set(e.clientX/innerWidth*2-1, -e.clientY/innerHeight*2+1); ray.setFromCamera(mouse, camera);
+  const hit = ray.intersectObjects(pickables)[0];
+  if(hit){ select(hit.object.userData.i, true); return; }
+  const eh = ray.intersectObject(earth)[0];
+  if(eh){
+    const v = eh.point.clone().normalize();
+    const lat = Math.asin(v.y)*180/Math.PI, lon = Math.atan2(-v.z, v.x)*180/Math.PI;
+    sel = -1; document.querySelectorAll("#list div").forEach(d=>d.classList.remove("sel"));
+    setProbe(lat, lon, true);
+  }
+});
+
+// ---------------- probe + side view ----------------
+let probe = null, cutGroup = new THREE.Group(); scene.add(cutGroup);
+function dest(lat, lon, brgDeg, dkm){            // great-circle destination
+  const r = Math.PI/180, d = dkm/6371, b = brgDeg*r, la = lat*r, lo = lon*r;
+  const la2 = Math.asin(Math.sin(la)*Math.cos(d) + Math.cos(la)*Math.sin(d)*Math.cos(b));
+  const lo2 = lo + Math.atan2(Math.sin(b)*Math.sin(d)*Math.cos(la), Math.cos(d) - Math.sin(la)*Math.sin(la2));
+  return [la2/r, ((lo2/r+540)%360)-180];
+}
+// phase G = atan2(Zi, Zr); high water arrives later where G is larger, so the crest moves up the gradient of G
+function crestTravel(lat, lon){
+  const z = sample(lat, lon); if(!z.ok) return null;
+  const st = 0.25, kmLat = 111.2, kmLon = 111.2*Math.cos(lat*Math.PI/180);
+  const zn = sample(lat+st, lon), zs = sample(lat-st, lon), ze = sample(lat, lon+st), zw = sample(lat, lon-st);
+  if(!(zn.ok && zs.ok && ze.ok && zw.ok)) return null;
+  const A2 = z.zr*z.zr + z.zi*z.zi; if(A2 < 1e-6) return null;
+  const dN = (z.zr*(zn.zi-zs.zi) - z.zi*(zn.zr-zs.zr))/A2/(2*st*kmLat);   // rad per km
+  const dE = (z.zr*(ze.zi-zw.zi) - z.zi*(ze.zr-zw.zr))/A2/(2*st*kmLon);
+  const g = Math.hypot(dN, dE);
+  return {bearing:((Math.atan2(dE, dN)*180/Math.PI)+360)%360, speed_ms:(F.w/g)/3.6, gradient:g};
+}
+function setProbe(lat, lon, alsoInfo){
+  const z = sample(lat, lon);
+  probe = {lat, lon, land:!z.ok};
+  $("probe").style.display = probe.land ? "none" : "block";
+  if(alsoInfo) $("sel").innerHTML = probe.land
+    ? `<b>Probe</b> <span class="mono">${fmtLL(lat,lon)}</span><br>That is land, or too close to the coast for the 0.5&deg; grid. Click open water.`
+    : `<b>Probe</b> <span class="mono">${fmtLL(lat,lon)}</span><br>The side view is a slice through this spot. Red post = the probe.`;
+  if(!probe.land){ const ct = crestTravel(lat, lon); if(ct) $("cutdir").value = Math.round(ct.bearing % 180); }
+  rebuildCut();
+}
+function cutPoint(u){                             // u in [-1,1] along the cut
+  const L = +$("cutlen").value, b = +$("cutdir").value;
+  return u >= 0 ? dest(probe.lat, probe.lon, b, u*L/2) : dest(probe.lat, probe.lon, b+180, -u*L/2);
+}
+function rebuildCut(){
+  scene.remove(cutGroup); cutGroup = new THREE.Group(); scene.add(cutGroup);
+  if(!probe) return;
+  const pin = new THREE.Mesh(new THREE.SphereGeometry(0.008, 14, 10), new THREE.MeshBasicMaterial({color:0xff5a5a}));
+  pin.position.copy(ll2v(probe.lat, probe.lon).multiplyScalar(1.004)); cutGroup.add(pin);
+  if(probe.land) return;
+  const pts = []; for(let k=0;k<=120;k++){ const [la,lo] = cutPoint(-1+2*k/120); pts.push(ll2v(la,lo).multiplyScalar(1.003)); }
+  cutGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({color:0xffe066})));
+}
+$("cutdir").oninput = rebuildCut; $("cutlen").oninput = rebuildCut;
+$("alignw").onclick = ()=>{ if(probe){ const ct = crestTravel(probe.lat, probe.lon); if(ct){ $("cutdir").value = Math.round(ct.bearing%180); rebuildCut(); } } };
+
+function setupCanvas(c){ const d = Math.min(devicePixelRatio,2), w = c.clientWidth, h = +c.getAttribute("height");
+  if(c.width !== Math.round(w*d)){ c.width = Math.round(w*d); c.height = Math.round(h*d); }
+  const g = c.getContext("2d"); g.setTransform(d,0,0,d,0,0); return [g, w, h]; }
+const compass = b=>["N","NE","E","SE","S","SW","W","NW"][Math.round((((b%360)+360)%360)/45)%8];
+
+// ---------------- depth + currents ----------------
+const DEPTHG = (()=>{ const b = atob(BATHY.b64), n = BATHY.nlat*BATHY.nlon, d = new Float32Array(n);
+  for(let k=0;k<n;k++) d[k] = b.charCodeAt(2*k) | (b.charCodeAt(2*k+1)<<8);
+  return d; })();
+function sampleDepth(lat, lon){
+  const y = (lat+90)/0.5, x = (((lon+180)%360)+360)%360/0.5;
+  const j = Math.min(BATHY.nlat-2, Math.floor(y)), i = Math.floor(x), v = y-j, u = x-i, i1 = (i+1)%BATHY.nlon;
+  let sd=0, sw=0;
+  for(const [jj,ii,wt] of [[j,i,(1-u)*(1-v)],[j,i1,u*(1-v)],[j+1,i1,u*v],[j+1,i,(1-u)*v]]){
+    const d = DEPTHG[jj*BATHY.nlon+ii]; if(d>0){ sd+=wt*d; sw+=wt; } }
+  return sw>0 ? sd/sw : 0;
+}
+const G_ACC = 9.81, OMEGA_E = 7.2921e-5;
+// Linear momentum balance with rotation, time factor e^{-i w t}:
+//   -i w U - f V = -g dZ/dx ,   -i w V + f U = -g dZ/dy      (x east, y north)
+function currentAt(lat, lon){
+  const z = sample(lat, lon); if(!z.ok) return null;
+  const st = 0.25, mLat = 111200*st*2, mLon = 111200*Math.cos(lat*Math.PI/180)*st*2;
+  const zn=sample(lat+st,lon), zs=sample(lat-st,lon), ze=sample(lat,lon+st), zw=sample(lat,lon-st);
+  if(!(zn.ok&&zs.ok&&ze.ok&&zw.ok)) return null;
+  const Zx = [(ze.zr-zw.zr)/100/mLon, (ze.zi-zw.zi)/100/mLon], Zy = [(zn.zr-zs.zr)/100/mLat, (zn.zi-zs.zi)/100/mLat];
+  const w = F.w/3600, f = 2*OMEGA_E*Math.sin(lat*Math.PI/180), det = f*f - w*w;
+  const U = [-G_ACC*( w*Zx[1] + f*Zy[0])/det, -G_ACC*(-w*Zx[0] + f*Zy[1])/det];
+  const V = [-G_ACC*(-f*Zx[0] + w*Zy[1])/det, -G_ACC*(-f*Zx[1] - w*Zy[0])/det];
+  return {U, V, critical: Math.abs(det) < 0.15*w*w};
+}
+function ellipse(cur){                     // speeds in m/s over one cycle
+  let max=0, min=1e9, dirMax=0, turn=0, prev=null;
+  for(let k=0;k<72;k++){ const a=2*Math.PI*k/72, u=cur.U[0]*Math.cos(a)+cur.U[1]*Math.sin(a), v=cur.V[0]*Math.cos(a)+cur.V[1]*Math.sin(a);
+    const sp=Math.hypot(u,v); if(sp>max){max=sp; dirMax=Math.atan2(u,v)*180/Math.PI;} if(sp<min) min=sp;
+    if(prev) turn += prev[0]*v - prev[1]*u; prev=[u,v]; }
+  return {max, min, dirMax:((dirMax%180)+180)%180, sense: turn>0?"counter-clockwise":"clockwise"};
+}
+
+function drawSide(){
+  const [g, W, H] = setupCanvas($("side")); g.clearRect(0,0,W,H);
+  const c = Math.cos(F.w*phaseT), s = Math.sin(F.w*phaseT), N = 300, L = +$("cutlen").value, b = +$("cutdir").value;
+  const sb = Math.sin(b*Math.PI/180), cb = Math.cos(b*Math.PI/180);
+  const prof = []; let amax = 1, dmax = 200;
+  for(let k=0;k<=N;k++){ const [la,lo] = cutPoint(-1+2*k/N), z = sample(la,lo), d = sampleDepth(la,lo);
+    if(z.ok && d>0){ prof.push({h:z.zr*c + z.zi*s, A:Math.hypot(z.zr,z.zi), d, la, lo}); amax = Math.max(amax, Math.hypot(z.zr,z.zi)); dmax = Math.max(dmax, d); }
+    else prof.push(null); }
+  const pad = 10, x = k=>pad + k/N*(W-2*pad);
+  const mid = 66, sy = 40/amax;                  // surface band (cm)
+  const y0 = 122, yb = H-22, yd = d=>y0 + d/dmax*(yb-y0);   // water column (m)
+  // surface band background + envelope
+  g.fillStyle = "rgba(120,160,210,0.13)";
+  for(let k=0;k<N;k++){ const p=prof[k], q=prof[k+1]; if(!p||!q) continue;
+    g.beginPath(); g.moveTo(x(k), mid-p.A*sy); g.lineTo(x(k+1), mid-q.A*sy); g.lineTo(x(k+1), mid+q.A*sy); g.lineTo(x(k), mid+p.A*sy); g.fill(); }
+  for(let k=0;k<N;k++){ const p=prof[k], q=prof[k+1];
+    if(!p||!q){ g.fillStyle="#5a4a2e"; g.fillRect(x(k), 18, x(k+1)-x(k)+0.6, H-18); continue; }
+    g.fillStyle = "rgba(40,110,200,0.5)";            // surface water (cm scale) down to the band floor
+    g.beginPath(); g.moveTo(x(k), mid-p.h*sy); g.lineTo(x(k+1), mid-q.h*sy); g.lineTo(x(k+1), y0); g.lineTo(x(k), y0); g.fill();
+    g.fillStyle = "rgba(25,80,160,0.75)";            // water column (m scale)
+    g.beginPath(); g.moveTo(x(k), y0); g.lineTo(x(k+1), y0); g.lineTo(x(k+1), yd(q.d)); g.lineTo(x(k), yd(p.d)); g.fill();
+    g.fillStyle = "#4a3c24";                         // sea floor
+    g.beginPath(); g.moveTo(x(k), yd(p.d)); g.lineTo(x(k+1), yd(q.d)); g.lineTo(x(k+1), H); g.lineTo(x(k), H); g.fill(); }
+  g.strokeStyle="#cfe6ff"; g.lineWidth=2; g.beginPath(); let on=false;
+  for(let k=0;k<=N;k++){ const p=prof[k]; if(!p){ on=false; continue; } on ? g.lineTo(x(k), mid-p.h*sy) : (g.moveTo(x(k), mid-p.h*sy), on=true); }
+  g.stroke();
+  g.setLineDash([5,4]); g.strokeStyle="#8899aa"; g.lineWidth=1;
+  g.beginPath(); g.moveTo(pad,mid); g.lineTo(W-pad,mid); g.stroke();
+  g.beginPath(); g.moveTo(pad,y0); g.lineTo(W-pad,y0); g.stroke(); g.setLineDash([]);
+  // current arrows in the water column (same at every depth for a long wave, except near the bottom)
+  const cols = []; let vmax = 0.005;
+  for(let n=0;n<15;n++){ const k = Math.round((n+0.5)/15*N), p = prof[k]; if(!p) continue;
+    const cur = currentAt(p.la, p.lo); if(!cur || cur.critical) continue;
+    const ar = cur.U[0]*sb + cur.V[0]*cb, ai = cur.U[1]*sb + cur.V[1]*cb;
+    vmax = Math.max(vmax, Math.hypot(ar, ai)); cols.push({k, p, now: ar*c + ai*s}); }
+  g.strokeStyle = "#ffffff"; g.fillStyle = "#ffffff"; g.lineWidth = 1.6;
+  for(const col of cols){
+    const len = col.now/vmax*22, xc = x(col.k);
+    for(const fr of [0.3, 0.7]){ const yy = y0 + fr*(yd(col.p.d)-y0); if(yd(col.p.d)-y0 < 14 && fr>0.5) continue;
+      if(Math.abs(len) < 1.5){ g.beginPath(); g.arc(xc, yy, 1.4, 0, 7); g.fill(); continue; }
+      g.beginPath(); g.moveTo(xc-len/2, yy); g.lineTo(xc+len/2, yy); g.stroke();
+      const dir = Math.sign(len); g.beginPath(); g.moveTo(xc+len/2+dir*4, yy); g.lineTo(xc+len/2-dir*1, yy-3.5); g.lineTo(xc+len/2-dir*1, yy+3.5); g.fill(); }
+  }
+  // probe post + buoy
+  const pc = prof[N/2]; g.fillStyle="#ff5a5a"; g.fillRect(x(N/2)-1.5, 16, 3, H-16);
+  if(pc){ g.beginPath(); g.arc(x(N/2), mid-pc.h*sy, 4.5, 0, 7); g.fillStyle="#ffd34d"; g.fill(); }
+  // labels
+  g.fillStyle="#d8e2ee"; g.font="11px system-ui"; g.textAlign="left"; g.fillText(compass(b+180), pad+2, 12);
+  g.textAlign="right"; g.fillText(compass(b), W-pad-2, 12); g.textAlign="center"; g.fillText(`${L} km`, W/2, 12);
+  g.font="10px system-ui"; g.fillStyle="#9fb3c8"; g.textAlign="left";
+  g.fillText(`surface: +/-${amax.toFixed(0)} cm`, pad+2, 28);
+  g.fillText(`sea level`, pad+2, y0-3);
+  g.fillText(`floor scale: ${Math.round(dmax)} m at bottom   arrows: up to ${(vmax*100).toFixed(1)} cm/s`, pad+2, H-7);
+  const ct = crestTravel(probe.lat, probe.lon);
+  if(ct){ const along = Math.cos((ct.bearing-b)*Math.PI/180);
+    if(Math.abs(along) > 0.3){ const dir = along>0 ? 1 : -1, ax = W/2 + dir*60, ay = 30;
+      g.strokeStyle="#ffe066"; g.fillStyle="#ffe066"; g.lineWidth=2; g.beginPath(); g.moveTo(ax-dir*40, ay); g.lineTo(ax, ay); g.stroke();
+      g.beginPath(); g.moveTo(ax+dir*8, ay); g.lineTo(ax-dir*2, ay-5); g.lineTo(ax-dir*2, ay+5); g.fill();
+      g.textAlign="center"; g.font="10px system-ui"; g.fillText("crest travels", ax-dir*20, ay-8); } }
+}
+function drawTS(){
+  const [g, W, H] = setupCanvas($("ts")); g.clearRect(0,0,W,H);
+  const z = sample(probe.lat, probe.lon); if(!z.ok) return;
+  const A = Math.hypot(z.zr, z.zi), G = Math.atan2(z.zi, z.zr), P = F.period, pad = 8, mid = H/2, sy = (H/2-14)/Math.max(A,0.1);
+  const EW = 104, x = t=>pad + t/P*(W-EW-2*pad);
+  g.strokeStyle="#2a3646"; g.lineWidth=1; g.beginPath(); g.moveTo(pad,mid); g.lineTo(W-EW-pad,mid); g.stroke();
+  g.strokeStyle="#ff5a5a"; g.lineWidth=2; g.beginPath();
+  for(let k=0;k<=200;k++){ const t=k/200*P, h=A*Math.cos(F.w*t-G); k? g.lineTo(x(t), mid-h*sy) : g.moveTo(x(t), mid-h*sy); }
+  g.stroke();
+  const cur = currentAt(probe.lat, probe.lon), b = +$("cutdir").value*Math.PI/180;
+  if(cur && !cur.critical){
+    const ar = cur.U[0]*Math.sin(b) + cur.V[0]*Math.cos(b), ai = cur.U[1]*Math.sin(b) + cur.V[1]*Math.cos(b), am = Math.max(Math.hypot(ar,ai),1e-6);
+    g.setLineDash([4,3]); g.strokeStyle="#7fe0ff"; g.lineWidth=1.6; g.beginPath();
+    for(let k=0;k<=200;k++){ const t=k/200*P, a=F.w*t, v=(ar*Math.cos(a)+ai*Math.sin(a))/am*(H/2-14); k? g.lineTo(x(t), mid-v) : g.moveTo(x(t), mid-v); }
+    g.stroke(); g.setLineDash([]);
+    // current ellipse seen from above
+    const cx = W-EW/2, cy = H/2, e = ellipse(cur), sc = (EW/2-12)/Math.max(e.max,1e-6);
+    g.strokeStyle="#2a3646"; g.beginPath(); g.moveTo(cx-EW/2+6,cy); g.lineTo(cx+EW/2-6,cy); g.moveTo(cx,6); g.lineTo(cx,H-6); g.stroke();
+    g.strokeStyle="#7fe0ff"; g.lineWidth=1.5; g.beginPath();
+    for(let k=0;k<=72;k++){ const a=2*Math.PI*k/72, u=cur.U[0]*Math.cos(a)+cur.U[1]*Math.sin(a), v=cur.V[0]*Math.cos(a)+cur.V[1]*Math.sin(a);
+      k? g.lineTo(cx+u*sc, cy-v*sc) : g.moveTo(cx+u*sc, cy-v*sc); }
+    g.stroke();
+    const a=F.w*phaseT, un=cur.U[0]*Math.cos(a)+cur.U[1]*Math.sin(a), vn=cur.V[0]*Math.cos(a)+cur.V[1]*Math.sin(a);
+    g.strokeStyle="#ffffff"; g.lineWidth=2; g.beginPath(); g.moveTo(cx,cy); g.lineTo(cx+un*sc, cy-vn*sc); g.stroke();
+    g.fillStyle="#9fb3c8"; g.font="10px system-ui"; g.textAlign="center"; g.fillText("N", cx, 10);
+  }
+  const tn = phaseT % P, hn = A*Math.cos(F.w*tn-G);
+  g.beginPath(); g.arc(x(tn), mid-hn*sy, 4.5, 0, 7); g.fillStyle="#ffd34d"; g.fill();
+  const thw = (((G/F.w)%P)+P)%P;
+  g.fillStyle="#d8e2ee"; g.font="10px system-ui"; g.textAlign="center"; g.fillText("high water", Math.min(W-EW-30, Math.max(30, x(thw))), 10);
+  g.textAlign="left"; g.fillStyle="#8899aa"; g.fillText(`+/-${A.toFixed(1)} cm   0 to ${P.toFixed(2)} h`, pad, H-3);
+}
+
+function depthCheck(){
+  const z = sample(probe.lat, probe.lon), A = Math.hypot(z.zr, z.zi)/100, d = sampleDepth(probe.lat, probe.lon);
+  const ct = crestTravel(probe.lat, probe.lon), cur = currentAt(probe.lat, probe.lon);
+  let t = `depth here (ETOPO1)      ${Math.round(d)} m\n`;
+  if(d > 0){
+    t += `free wave speed sqrt(gH) ${Math.sqrt(G_ACC*d).toFixed(0)} m/s`+(ct?`  (crest measured ${ct.speed_ms.toFixed(0)})`:"")+`\n`;
+    t += `  (close = a travelling wave; much faster\n   measured = near a point or standing wave)\n`;
+  }
+  if(!cur) return t + "current: too close to land";
+  if(cur.critical) return t + "current: near the critical latitude,\n  estimate breaks down (not shown)";
+  const e = ellipse(cur);
+  t += `current max              ${(e.max*100).toFixed(1)} cm/s along ${e.dirMax.toFixed(0)}-${(e.dirMax+180).toFixed(0)} deg\n`;
+  t += `current min              ${(e.min*100).toFixed(1)} cm/s, tip turns ${e.sense}\n`;
+  if(d > 0) t += `travelling-wave estimate A*sqrt(g/H) = ${(A*Math.sqrt(G_ACC/d)*100).toFixed(1)} cm/s`;
+  return t;
+}
+
+// ---------------- controls ----------------
+let playing = true, phaseT = 0;     // phaseT in hours of the selected constituent
+document.querySelectorAll("button[data-c]").forEach(b=>b.onclick = ()=>{
+  document.querySelectorAll("button[data-c]").forEach(x=>x.classList.remove("on")); b.classList.add("on");
+  C = b.dataset.c; F = FIELDS[C]; sel = -1; $("sel").innerHTML = "<b>Click a point</b>";
+  makeTideTexture(); rebuildMarkers();
+  if(probe) setProbe(probe.lat, probe.lon, true);
+});
+$("play").onclick = ()=>{ playing=!playing; $("play").textContent = playing?"Pause":"Play"; };
+$("dmin").oninput = rebuildMarkers; $("noise").onchange = rebuildMarkers;
+
+function paintTide(){
+  const c = Math.cos(F.w*phaseT), s = Math.sin(F.w*phaseT), sc = +$("scale").value;
+  uniforms.showCot.value = $("cot").checked ? 1 : 0;
+  const n = F.nlat*F.nlon, d = tideData;
+  for(let k=0;k<n;k++){
+    const o = 4*k;
+    if(!F.ok[k]){ d[o]=d[o+1]=d[o+2]=d[o+3]=0; continue; }
+    const h = (F.zr[k]*c + F.zi[k]*s)/sc;
+    const q = h>1?1:h<-1?-1:h, t = q<0?-q:q;
+    let r,g,b;
+    if(q<0){ r=232+(23-232)*t; g=238+(71-238)*t; b=245+(201-245)*t; } else { r=232+(210-232)*t; g=238+(58-238)*t; b=245+(42-245)*t; }
+    d[o]=r; d[o+1]=g; d[o+2]=b; d[o+3]=255;
+  }
+  tideTex.needsUpdate = true;
+}
+
+let last = performance.now();
+function tick(now){
+  const dt = Math.min((now-last)/1000, 0.1); last = now;
+  const spd = +$("speed").value;
+  if(playing) phaseT += dt*spd*(F.period/12.42);   // same visual pace for every constituent
+  $("spv").textContent = spd+"x"; $("scv").textContent = "+/-"+$("scale").value+" cm"; $("dminv").textContent = $("dmin").value+" km";
+  const cyc = phaseT/F.period;
+  $("clock").textContent = `${(phaseT%F.period).toFixed(2)} h of ${F.period.toFixed(2)} h  (cycle ${Math.floor(cyc)+1})`;
+  paintTide();
+
+  let chk = "";
+  if(sel>=0){
+    const p = F.points[sel], z = sample(p.lat, p.lon);
+    const w1 = windingAt(p.lat, p.lon, 0.75), w2 = windingAt(p.lat, p.lon, 1.5);
+    chk = `amplitude at the point   ${z.ok?Math.hypot(z.zr,z.zi).toFixed(2)+" cm":"(touches land)"}\n`+
+          `mean amplitude 1 deg out  ${ringAmp(p.lat,p.lon,1).toFixed(1)} cm\n`+
+          `mean amplitude 3 deg out  ${ringAmp(p.lat,p.lon,3).toFixed(1)} cm\n`+
+          `phase winding r=0.75 deg  ${w1===null?"(hits land)":(w1>0?"+":"")+w1}\n`+
+          `phase winding r=1.5 deg   ${w2===null?"(hits land)":(w2>0?"+":"")+w2}\n`+
+          `  (+1 = CCW, -1 = CW; python said ${p.s>0?"+1":"-1"})`;
+  } else if(probe && !probe.land){
+    const z = sample(probe.lat, probe.lon), A = Math.hypot(z.zr, z.zi), Gd = ((Math.atan2(z.zi, z.zr)*180/Math.PI)+360)%360;
+    const ct = crestTravel(probe.lat, probe.lon), w = windingAt(probe.lat, probe.lon, 0.75);
+    chk = `amplitude here           ${A.toFixed(1)} cm (range ${(2*A).toFixed(1)} cm)\n`+
+          `phase lag G              ${Gd.toFixed(1)} deg\n`+
+          `high water at            ${(Gd/360*F.period).toFixed(2)} h into the cycle\n`+
+          (ct ? `crest travels toward     ${ct.bearing.toFixed(0)} deg (${compass(ct.bearing)})\n`+
+                `crest speed w/|grad G|   ${ct.speed_ms.toFixed(0)} m/s\n`+
+                `  (ref: free long wave in 4000 m of water\n   sqrt(9.81*4000) = ${Math.sqrt(9.81*4000).toFixed(0)} m/s)\n`
+              : `crest direction: too close to land or zero\n`)+
+          `phase winding r=0.75 deg ${w===null?"(hits land)":w}  (0 = no point here)\n\n`+depthCheck();
+  } else chk = "click the ocean or a point";
+  $("check").textContent = chk;
+  if(probe && !probe.land){
+    $("cutdv").textContent = $("cutdir").value+"deg "+compass(+$("cutdir").value)+"-"+compass(+$("cutdir").value+180);
+    $("cutlv").textContent = $("cutlen").value+" km";
+    drawSide(); drawTS();
+  }
+
+  if(flyT < 1){
+    flyT = Math.min(1, flyT + dt/1.4);
+    const e = flyT<.5 ? 2*flyT*flyT : 1-Math.pow(-2*flyT+2,2)/2;
+    const dir = flyFrom.clone().normalize().lerp(flyTo.clone().normalize(), e).normalize();
+    camera.position.copy(dir.multiplyScalar(THREE.MathUtils.lerp(flyFrom.length(), flyTo.length(), e)));
+  }
+  controls.update();
+  renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
+rebuildMarkers();
+requestAnimationFrame(tick);
+addEventListener("resize", ()=>{ camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+</script>
+</body>
+</html>
