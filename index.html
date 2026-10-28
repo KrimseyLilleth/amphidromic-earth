@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Amphidromic Points (GOT4.10c)</title>
+<title>Where the Tide Stands Still</title>
 <style>
   html, body { margin:0; height:100%; background:#05070b; color:#d8e2ee; font:13px/1.45 system-ui, sans-serif; overflow:hidden; }
   #panel { position:fixed; top:12px; left:12px; width:340px; max-height:calc(100% - 24px); overflow:auto;
@@ -30,22 +30,40 @@
     background:linear-gradient(90deg,#1747c9,#e8eef5,#d23a2a); }
   #credit { position:fixed; right:10px; bottom:10px; z-index:9999; color:#fff; font-size:11px; text-align:right;
     pointer-events:none; background:rgba(7,9,13,.78); padding:4px 9px; border-radius:7px; border:1px solid #1b2330; }
-  @media (max-width:820px) { #legend { display:none; } #panel { width:calc(100% - 24px); max-height:34%; } #info { top:auto; bottom:52px; left:12px; width:calc(100% - 24px); max-height:40%; } }
+  .sheethead { display:flex; align-items:flex-start; gap:8px; justify-content:space-between; }
+  #closeinfo { font-size:20px; line-height:1; padding:4px 11px; flex:none; }
+  .phone { display:none; }
+  .hint { color:#9fb3c8; font-size:12px; margin:2px 0 4px; }
+  @media (max-width:820px) {
+    .desk, .desk-block, #legend { display:none !important; }
+    .phone { display:block; }
+    #panel { top:8px; left:8px; width:calc(100% - 16px); padding:8px 10px; }
+    #panel h1 { font-size:15px; margin:0; }
+    #panel .row { margin:4px 0; gap:6px; }
+    #panel button { padding:7px 11px; font-size:13px; }
+    #clock { font-size:11px; }
+    #info { display:none; top:auto; bottom:52px; left:8px; width:calc(100% - 16px); max-height:48%; padding:8px 10px; }
+    body.probing #info { display:block; }
+    #info h2 { font-size:11px; margin:8px 0 4px; }
+    #info .row > span:first-child { min-width:84px; }
+  }
 </style>
 </head>
 <body>
 <div id="panel">
-  <h1>Earth's amphidromic points, from real tide data</h1>
-  <p>The colours are the <b>actual tide</b> from NASA's GOT4.10c model (built from satellite altimetry, 0.5&deg; grid), animated through one cycle. The dots are every amphidromic point found in it: places where the phase of the tide <b>winds once around</b> a grid cell, so the height there is zero.</p>
-  <p>Drag to rotate, scroll to zoom, click a dot or a list entry to fly there.</p>
+  <h1>Where the Tide Stands Still</h1>
+  <p class="desk">The colours are the <b>actual tide</b> from NASA's GOT4.10c model (built from satellite altimetry, 0.5&deg; grid), animated through one cycle. The dots are every amphidromic point found in it: places where the phase of the tide <b>winds once around</b> a grid cell, so the height there is zero.</p>
+  <p class="desk">Drag to rotate, scroll to zoom, click a dot or a list entry to fly there.</p>
+  <p class="phone hint">Drag to spin, pinch to zoom. Tap a pin or the ocean.</p>
 
-  <h2>Tide</h2>
-  <div class="row"><span>constituent</span>
+  <h2 class="desk">Tide</h2>
+  <div class="row"><span class="desk">constituent</span>
     <button data-c="m2" class="on">M2 lunar</button><button data-c="s2">S2 solar</button>
     <button data-c="k1">K1</button><button data-c="o1">O1</button></div>
   <div class="row"><button id="play">Pause</button><span class="mono" id="clock"></span></div>
-  <div class="row"><span>speed</span><input id="speed" type="range" min="0.2" max="6" step="0.1" value="2"><span class="mono" id="spv"></span></div>
-  <div class="row"><span>colour range</span><input id="scale" type="range" min="10" max="300" step="5" value="80"><span class="mono" id="scv"></span></div>
+  <div class="desk-block">
+  <div class="row"><span>speed</span><input id="speed" type="range" min="0.2" max="6" step="0.1" value="1.3"><span class="mono" id="spv"></span></div>
+  <div class="row"><span>colour range</span><input id="scale" type="range" min="10" max="300" step="5" value="30"><span class="mono" id="scv"></span></div>
   <div class="row"><label><input type="checkbox" id="cot" checked> cotidal lines (every 1/12 cycle)</label></div>
 
   <h2>Points</h2>
@@ -61,10 +79,12 @@
   <p><b>Currents</b> are calculated, not measured: the slope of the tide surface pushes the water, and Earth's rotation turns it (linear, frictionless). That is good in the deep ocean; in shallow seas friction slows the real flow, so treat those numbers as upper limits. Near the "critical latitude" (where the tide's period matches the rotation's turning period: 74.5&deg; for M2, about 30&deg; for K1/O1) the estimate breaks down and is not shown.</p>
   <p>Depth: NOAA ETOPO1, averaged to 0.5&deg;.</p>
   <p>Data: R. Ray, GOT4.10c, NASA Goddard. Points found by <span class="mono">find_amphidromes.py</span>.</p>
+  </div>
 </div>
 
 <div id="info">
-  <div id="sel"><b>Click anywhere on the ocean</b> (or on a dot) to probe the tide there.</div>
+  <div class="sheethead"><div id="sel"><b>Click anywhere on the ocean</b> (or on a dot) to probe the tide there.</div>
+    <button id="closeinfo" class="phone" aria-label="Close">&times;</button></div>
   <div id="probe" style="display:none">
     <h2>Side view along the cut (yellow line on the globe)</h2>
     <canvas class="plot" id="side" height="300"></canvas>
@@ -76,8 +96,8 @@
     <canvas class="plot" id="ts" height="110"></canvas>
     <div style="font-size:11px;color:#8fa3ba"><span style="color:#ff5a5a">&#9632;</span> height &nbsp; <span style="color:#7fe0ff">- -</span> current along the cut &nbsp; | right: current seen from above (N up)</div>
   </div>
-  <h2>Live check (re-computed here from the field)</h2>
-  <div class="mono" id="check"></div>
+  <div class="desk-block"><h2>Live check (re-computed here from the field)</h2>
+  <div class="mono" id="check"></div></div>
 </div>
 
 <div id="legend">tide height: low <span class="bar"></span> high &nbsp;|&nbsp; <span class="ccw">&#9679; counter-clockwise</span> &nbsp; <span class="cw">&#9679; clockwise</span></div>
@@ -115,14 +135,20 @@ function ll2v(lat, lon){
 
 // ---------------- scene ----------------
 const renderer = new THREE.WebGLRenderer({antialias:true});
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const isPhone = ()=>matchMedia("(max-width:820px)").matches;
+renderer.setPixelRatio(Math.min(devicePixelRatio, isPhone() ? 1.5 : 2));
 renderer.setSize(innerWidth, innerHeight);
 document.body.prepend(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(40, innerWidth/innerHeight, 0.01, 100);
-camera.position.copy(ll2v(35, -30).multiplyScalar(3.6));
+// back the camera off until the whole globe fits the narrower screen direction
+function fitDistance(){
+  const vf = camera.fov*Math.PI/180, hf = 2*Math.atan(Math.tan(vf/2)*camera.aspect);
+  return 1.12/Math.sin(Math.min(vf, hf)/2);
+}
+camera.position.copy(ll2v(35, -30).multiplyScalar(Math.max(3.6, fitDistance())));
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true; controls.minDistance = 1.15; controls.maxDistance = 8;
+controls.enableDamping = true; controls.minDistance = 1.15; controls.maxDistance = Math.max(8, fitDistance()*1.3);
 
 const loader = new THREE.TextureLoader(); loader.setCrossOrigin("anonymous");
 const dayTex = loader.load("https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/earth_atmos_2048.jpg");
@@ -308,6 +334,8 @@ function setProbe(lat, lon, alsoInfo){
   const z = sample(lat, lon);
   probe = {lat, lon, land:!z.ok};
   $("probe").style.display = probe.land ? "none" : "block";
+  document.body.classList.add("probing");
+  if(isPhone() && alsoInfo){ flyFrom = camera.position.clone(); flyTo = ll2v(lat, lon).multiplyScalar(camera.position.length()); flyT = 0; }
   if(alsoInfo) $("sel").innerHTML = probe.land
     ? `<b>Probe</b> <span class="mono">${fmtLL(lat,lon)}</span><br>That is land, or too close to the coast for the 0.5&deg; grid. Click open water.`
     : `<b>Probe</b> <span class="mono">${fmtLL(lat,lon)}</span><br>The side view is a slice through this spot. Red post = the probe.`;
@@ -506,7 +534,7 @@ function paintTide(){
   tideTex.needsUpdate = true;
 }
 
-let last = performance.now();
+let last = performance.now(), frameNo = 0;
 function tick(now){
   const dt = Math.min((now-last)/1000, 0.1); last = now;
   const spd = +$("speed").value;
@@ -514,7 +542,7 @@ function tick(now){
   $("spv").textContent = spd+"x"; $("scv").textContent = "+/-"+$("scale").value+" cm"; $("dminv").textContent = $("dmin").value+" km";
   const cyc = phaseT/F.period;
   $("clock").textContent = `${(phaseT%F.period).toFixed(2)} h of ${F.period.toFixed(2)} h  (cycle ${Math.floor(cyc)+1})`;
-  paintTide();
+  if(!isPhone() || (frameNo++ & 1) === 0) paintTide();
 
   let chk = "";
   if(sel>=0){
@@ -552,12 +580,19 @@ function tick(now){
     camera.position.copy(dir.multiplyScalar(THREE.MathUtils.lerp(flyFrom.length(), flyTo.length(), e)));
   }
   controls.update();
+  // on phones, centre the globe in the gap between the top bar and the pop-up
+  if(isPhone() && document.body.classList.contains("probing")){
+    const top = $("panel").getBoundingClientRect().bottom, bot = $("info").getBoundingClientRect().top;
+    camera.setViewOffset(innerWidth, innerHeight, 0, innerHeight/2 - (top+bot)/2, innerWidth, innerHeight);
+  } else if(camera.view && camera.view.enabled) camera.clearViewOffset();
   renderer.render(scene, camera);
   requestAnimationFrame(tick);
 }
 rebuildMarkers();
 requestAnimationFrame(tick);
-addEventListener("resize", ()=>{ camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+$("closeinfo").onclick = ()=>document.body.classList.remove("probing");
+if(isPhone()){ $("side").setAttribute("height", "220"); $("ts").setAttribute("height", "100"); }
+addEventListener("resize", ()=>{ controls.maxDistance = Math.max(8, fitDistance()*1.3); camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
 </script>
 </body>
 </html>
